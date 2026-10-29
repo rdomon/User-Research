@@ -638,3 +638,16 @@ input[type='range']::-moz-range-thumb { width: 16px; height: 16px; border: 4px s
 
 /* Real Spotify playlist access messaging */
 .playlist-notice { color: #c5cbb7; font-size: 13px; line-height: 1.6; padding: 14px 10px; margin: 8px 0; }
+
+/* Spotify personal library and account — uses the existing BODiFi palette */
+.spotify-tabs{display:flex;gap:8px;margin:18px 0;border-bottom:1px solid #ffffff27;padding-bottom:12px;flex-wrap:wrap}
+.spotify-tab{padding:11px 18px;border:1px solid #ffffff29;background:#38422c;color:#d3d9c6;border-radius:999px;font-weight:700;cursor:pointer}
+.spotify-tab.active,.spotify-tab:hover,.spotify-tab:focus-visible{color:#26300f;background:var(--lime);border-color:var(--lime);outline:none}
+.spotify-section-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.spotify-section-row h3{font:800 22px Manrope,sans-serif;margin:12px 0}
+.spotify-help-text{color:var(--muted);font-size:13px;line-height:1.6;margin:8px 0 14px}
+#spotifyLibraryView .spotify-results{max-height:43dvh;margin:5px 0 16px}
+.spotify-profile-card{display:flex;align-items:center;gap:18px;padding:20px;border:1px solid #ffffff27;border-radius:16px;background:#ffffff0b;flex-wrap:wrap}
+.spotify-profile-avatar{height:76px;width:76px;object-fit:cover;border-radius:50%;background:#52682b;display:grid;place-items:center;font-size:30px;color:var(--lime)}
+.spotify-profile-card>div{display:flex;flex-direction:column;gap:7px}.spotify-profile-card strong{font-size:22px}.spotify-profile-card small{color:var(--muted)}.spotify-profile-card a{color:var(--lime);font-size:14px}
+@media(max-width:500px){.spotify-tab{flex:1;padding:10px 8px;font-size:13px}.spotify-profile-avatar{height:60px;width:60px}}

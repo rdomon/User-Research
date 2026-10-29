@@ -118,13 +118,26 @@
       <div class="spotify-modal" id="spotifyModal" hidden role="dialog" aria-modal="true" aria-labelledby="spotifyModalTitle">
         <section class="spotify-sheet">
           <div class="spotify-sheet-head"><div><p class="spotify-eyebrow">BODIFI × SPOTIFY</p><h2 id="spotifyModalTitle">Search music</h2></div><button id="closeSpotifyModal" class="spotify-outline" type="button">✕ Close</button></div>
+          <div class="spotify-tabs" role="tablist" aria-label="Spotify sections">
+            <button type="button" class="spotify-tab active" role="tab" aria-selected="true" data-spotify-tab="search">Search</button>
+            <button type="button" class="spotify-tab" role="tab" aria-selected="false" data-spotify-tab="library">My Library</button>
+            <button type="button" class="spotify-tab" role="tab" aria-selected="false" data-spotify-tab="account">Account</button>
+          </div>
           <div id="spotifyAccount" class="spotify-account"></div>
+          <section id="spotifyLibraryView" hidden>
+            <div class="spotify-section-row"><h3>My playlists</h3><button type="button" class="spotify-outline" id="refreshLibrary">↻ Refresh</button></div>
+            <p class="spotify-help-text">Playlists from your connected Spotify account. Spotify may restrict song lists for playlists owned by others.</p>
+            <div id="myPlaylists" class="spotify-results" aria-live="polite"></div>
+            <button id="loadMorePlaylists" class="spotify-outline" type="button" hidden>Load more playlists</button>
+          </section>
+          <section id="spotifyProfileView" hidden><div id="spotifyProfile" aria-live="polite"></div></section>
+          <section id="spotifySearchView">
           <form id="spotifySearchForm" class="spotify-search-form" hidden>
             <input id="spotifyQuery" type="search" placeholder="Search songs or playlists" aria-label="Search Spotify" required />
             <select id="spotifySearchType" aria-label="Search type"><option value="track,playlist">All</option><option value="track">Songs</option><option value="playlist">Playlists</option></select>
             <button type="submit">Search</button>
           </form>
-          <div id="spotifyResults" class="spotify-results" aria-live="polite"></div>
+          <div id="spotifyResults" class="spotify-results" aria-live="polite"></div></section>
         </section>
       </div>
       <!-- ===== Help dialog ===== -->

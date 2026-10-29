@@ -96,6 +96,9 @@
   const spotify = window.BodifiSpotify;
   let realPlaylist = null, realTracks = [], realTrack = null, realActive = false;
   let playlistListUnavailable = false;
+  let libraryOffset = 0, libraryLoading = false, currentSpotifyTab = 'search';
+  const libraryItems = new Map();
+  let profileCache = null;
   let realPosition = 0, realDuration = 0, realPaused = true;
   const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const imageHTML = (url, hue = 100) => url && /^https:\/\//.test(url) ? `<img class="spotify-cover" src="${safe(url)}" alt="Album art" />` : artHTML(hue);
@@ -114,7 +117,65 @@
     const r = await spotify.connect(applyPlayback, report);
     toast('Spotify browser player is ready'); return r;
   }
-  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); }
+  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); setSpotifyTab(currentSpotifyTab); }
+  function setSpotifyTab(tab) {
+    currentSpotifyTab = tab;
+    document.querySelectorAll('[data-spotify-tab]').forEach(b => {
+      const active = b.dataset.spotifyTab === tab;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', String(active));
+    });
+    $('spotifySearchView').hidden = tab !== 'search';
+    $('spotifyLibraryView').hidden = tab !== 'library';
+    $('spotifyProfileView').hidden = tab !== 'account';
+    $('spotifyModalTitle').textContent = ({ search:'Search music', library:'My Library', account:'My Spotify Account' })[tab];
+    if (!spotify.connected()) return;
+    if (tab === 'library' && !libraryItems.size) realAction(() => fetchMyPlaylists(true));
+    if (tab === 'account') realAction(fetchMyProfile);
+  }
+  async function fetchMyProfile() {
+    const el = $('spotifyProfile');
+    el.textContent = 'Loading your Spotify profile…';
+    try {
+      profileCache = profileCache || await spotify.api('/me');
+      const p = profileCache;
+      const photo = p.images?.[0]?.url;
+      const profileLink = p.external_urls?.spotify || `https://open.spotify.com/user/${encodeURIComponent(p.id || '')}`;
+      el.innerHTML = `<div class="spotify-profile-card">${photo ? `<img class="spotify-profile-avatar" src="${safe(photo)}" alt="Spotify profile image">` : '<span class="spotify-profile-avatar placeholder">♫</span>'}<div><strong>${safe(p.display_name || p.id || 'Spotify user')}</strong><small>Connected Spotify account</small><a target="_blank" rel="noopener noreferrer" href="${safe(profileLink)}">Open profile on Spotify ↗</a></div></div>`;
+    } catch(e) { el.textContent = `Could not load your account: ${e.message}`; }
+  }
+  async function fetchMyPlaylists(reset = false) {
+    if (libraryLoading) return;
+    if (reset) { libraryOffset = 0; libraryItems.clear(); $('myPlaylists').replaceChildren(); }
+    libraryLoading = true;
+    const el = $('myPlaylists');
+    const more = $('loadMorePlaylists');
+    more.hidden = true;
+    const status = document.createElement('p'); status.className = 'spotify-help-text'; status.textContent = 'Loading playlists…'; el.append(status);
+    try {
+      const page = await spotify.myPlaylists(libraryOffset);
+      status.remove();
+      const items = (page?.items || []).filter(Boolean);
+      for (const x of items) {
+        if (!x.id || !x.uri) continue;
+        libraryItems.set(x.id, x);
+        const b = document.createElement('button'); b.className = 'spotify-result'; b.type = 'button';
+        b.dataset.kind = 'playlist'; b.dataset.id = x.id; b.dataset.uri = x.uri;
+        const cover = imageHTML(x.images?.[0]?.url);
+        const count = x.items?.total ?? x.tracks?.total;
+        b.innerHTML = `${cover}<span><strong>${safe(x.name)}</strong><small>${count == null ? 'Spotify playlist' : `${count} tracks`} · ${safe(x.owner?.display_name || 'Spotify')}</small></span><span class="spotify-action">Play ›</span>`;
+        el.append(b);
+      }
+      libraryOffset += items.length;
+      if (!libraryItems.size) el.innerHTML = '<p class="spotify-help-text">No playlists found on this Spotify account.</p>';
+      more.hidden = !(page?.next && items.length);
+    } catch (e) {
+      status.remove();
+      const err = document.createElement('p'); err.className = 'playlist-notice';
+      err.textContent = `Could not load playlists: ${e.message}. Try reconnecting Spotify and allowing playlist access.`;
+      el.append(err);
+    } finally { libraryLoading = false; }
+  }
   function renderSpotifyAccount() {
     const account = $('spotifyAccount');
     if (!spotify.clientId()) {
@@ -125,6 +186,7 @@
       account.innerHTML = `<div class="spotify-connected"><span class="connection-dot"></span> Spotify authorized <button id="logoutSpotify" class="spotify-link" type="button">Disconnect</button></div><button id="activateSpotify" class="spotify-outline" type="button">Activate browser audio</button>`;
     }
     $('spotifySearchForm').hidden = !spotify.connected();
+    document.querySelector('.spotify-tabs').hidden = !spotify.connected();
   }
   async function performSearch(q, type) {
     $('spotifyResults').textContent = 'Searching Spotify…';
@@ -464,10 +526,17 @@
   $('spotifyAccount').addEventListener('click', e => {
     if (e.target.id === 'connectSpotify') realAction(() => spotify.auth());
     if (e.target.id === 'activateSpotify') realAction(connectPlayback);
-    if (e.target.id === 'logoutSpotify') { spotify.logout(); realActive = false; renderSpotifyAccount(); render(); }
+    if (e.target.id === 'logoutSpotify') { spotify.logout(); realActive = false; libraryItems.clear(); profileCache = null; currentSpotifyTab = 'search'; renderSpotifyAccount(); setSpotifyTab('search'); render(); }
     if (e.target.id === 'editClientId') { spotify.setClientId(''); renderSpotifyAccount(); }
   });
   $('spotifySearchForm').addEventListener('submit', e => { e.preventDefault(); realAction(() => performSearch($('spotifyQuery').value.trim(), $('spotifySearchType').value)); });
+  document.querySelectorAll('[data-spotify-tab]').forEach(b => b.addEventListener('click', () => setSpotifyTab(b.dataset.spotifyTab)));
+  $('refreshLibrary').addEventListener('click', () => realAction(() => fetchMyPlaylists(true)));
+  $('loadMorePlaylists').addEventListener('click', () => realAction(() => fetchMyPlaylists(false)));
+  $('myPlaylists').addEventListener('click', e => {
+    const b = e.target.closest('button[data-kind="playlist"]'); if (!b) return;
+    realAction(() => loadPlaylist(b.dataset.id, b.dataset.uri));
+  });
   $('spotifyResults').addEventListener('click', e => {
     const b = e.target.closest('button.spotify-result'); if (!b) return;
     realAction(async () => {
