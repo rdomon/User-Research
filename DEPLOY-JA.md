@@ -1,23 +1,11 @@
-# BODiFi Spotify LIVE — GitHub Pages公開・Raspberry Piテスト
+# BODiFi My Library 追加版 — 公開方法
 
-## これはオンラインのライブ再生版です
-- SpotifyのOAuth PKCE・Web Playback SDKとSpotify APIを使います。音楽を聴くにはインターネット、Spotify Premium、対応ブラウザ、ユーザー許可が必要です。
-- WiiMへの直接接続や商用店舗での再生ライセンスを提供するものではありません。Milestone 1の**オフライン必須条件は満たしません**。課題提出には別のオフライン版を使ってください。
+1. ZIPを展開し、`index.html`、`app.js`、`spotify.js`、`styles.css`、`assets/`を既存のProject 2の直下（GitHub Pagesのroot）に上書き配置します。
+2. VS Codeで `git add index.html app.js spotify.js styles.css assets/` → `git commit -m "Add Spotify My Library and Account"` → `git push origin main` を実行します。
+3. `https://rdomon.github.io/User-Research/` を開き、Spotify検索画面の **My Library** および **Account** タブを確認します。
+4. My Libraryでは接続中のアカウントの所有・フォロー中のプレイリストを取得します。**Refresh**で再取得、**Load more playlists**で続きを読み込みます。リストのプレイリストを押すと再生画面に進みます。
+5. AccountはSpotifyのユーザー名・プロフィール画像・Spotifyへのリンクを表示します。
 
-## 公開
-1. バックアップを取り、このフォルダ内の `index.html`、`styles.css`、`app.js`、`spotify.js`、`assets/` を `Project 2` の直下にコピー。
-2. VS Codeのターミナルで `git add index.html styles.css app.js spotify.js assets/`、`git commit -m "Improve live Spotify Pi player"`、`git push origin main`。
-3. GitHub Pagesの `https://rdomon.github.io/User-Research/` を再読み込み。
-4. Spotify Developer DashboardのRedirect URIにこのURLを完全一致で登録。Client Secretは使用しない。既存のClient IDをSpotify画面に設定。
+認証スコープ（`playlist-read-private`、`playlist-read-collaborative`、`user-read-private`）は既に含まれています。権限不足などが出たらSpotifyの **Disconnect** → 再接続で認可し直してください。
 
-## 操作
-1 Instructor → 2 Music service（初回ログイン後は Continue to Class type）→ 3 Class type → 4 Playlist → Now Playing。
-4ではSpotifyのライブラリからプレイリストをロードし、別の曲はSearch Spotifyを使います。Search SpotifyではMy Library / Accountも開けます。
-
-## 1024×600テスト
-ChromeでDevTools > Device Toolbarを開き1024×600に設定。全4ステップ、プレイリスト読み込みの失敗とRetry、アルバムアート、タッチターゲット、戻る、再読み込みを検証。実機Raspberry Piでの出力音声とタッチ操作は未検証です。
-
-## 注意点
-- 「Network available」はブラウザのネットワーク状態の目安であり、Spotifyの接続を保証しません。
-- Spotifyに認可されていても、音を出すには再生デバイスをアクティベートする必要がある場合があります。
-- Spotify APIにより、他人所有のプレイリストの曲一覧は取得できない場合があります。
+注意：2026年のSpotify Development Modeでは、フォロー中でも他人が所有するプレイリストの曲一覧をAPIで取得できないことがあります。そうしたプレイリストでも再生自体は可能な場合があります。Spotify Premium、HTTPS、適切なRedirect URIが必要です。実際のSpotifyアカウントでの動作は環境上未検証です。
