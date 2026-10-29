@@ -93,6 +93,75 @@
   const currentTracks = () => PLAYLISTS[state.playlist ?? 0].tracks;
   const currentTrack = () => currentTracks()[state.track];
 
+  const spotify = window.BodifiSpotify;
+  let realPlaylist = null, realTracks = [], realTrack = null, realActive = false;
+  let playlistListUnavailable = false;
+  let realPosition = 0, realDuration = 0, realPaused = true;
+  const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const imageHTML = (url, hue = 100) => url && /^https:\/\//.test(url) ? `<img class="spotify-cover" src="${safe(url)}" alt="Album art" />` : artHTML(hue);
+  const report = err => { console.error(err); toast(err.message || String(err)); $('spotifyResults').textContent = err.message || String(err); };
+  async function realAction(fn) { try { await fn(); } catch (err) { report(err); } }
+  function applyPlayback(data) {
+    if (!data?.playback) return;
+    const ps = data.playback, tr = ps.track_window?.current_track;
+    if (!tr) return;
+    realActive = true; realTrack = { uri: tr.uri, title: tr.name, artist: tr.artists?.map(x => x.name).join(', ') || '', dur: (tr.duration_ms || 0)/1000, image: tr.album?.images?.[0]?.url };
+    realPosition = ps.position / 1000; realDuration = realTrack.dur; realPaused = ps.paused;
+    state.playing = !realPaused;
+    if (state.step === NOW_PLAYING) { renderTrackInfo(); renderPlayButton(); }
+  }
+  async function connectPlayback() {
+    const r = await spotify.connect(applyPlayback, report);
+    toast('Spotify browser player is ready'); return r;
+  }
+  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); }
+  function renderSpotifyAccount() {
+    const account = $('spotifyAccount');
+    if (!spotify.clientId()) {
+      account.innerHTML = `<p>Enter your Spotify Developer Client ID. Register this page URL as the Redirect URI in your Spotify app.</p><form id="spotifyClientForm" class="spotify-config-form"><input aria-label="Spotify Client ID" placeholder="Spotify Client ID" required pattern="[a-zA-Z0-9]+" /><button type="submit">Save Client ID</button></form>`;
+    } else if (!spotify.connected()) {
+      account.innerHTML = `<p>Connect Spotify Premium to search and play real music. <button id="editClientId" class="spotify-link" type="button">Change Client ID</button></p><button id="connectSpotify" type="button" class="spotify-primary">Connect Spotify account</button>`;
+    } else {
+      account.innerHTML = `<div class="spotify-connected"><span class="connection-dot"></span> Spotify authorized <button id="logoutSpotify" class="spotify-link" type="button">Disconnect</button></div><button id="activateSpotify" class="spotify-outline" type="button">Activate browser audio</button>`;
+    }
+    $('spotifySearchForm').hidden = !spotify.connected();
+  }
+  async function performSearch(q, type) {
+    $('spotifyResults').textContent = 'Searching Spotify…';
+    const result = await spotify.search(q, type);
+    const tracks = result.tracks?.items || [], playlists = (result.playlists?.items || []).filter(Boolean);
+    $('spotifyResults').innerHTML = `<p class="spotify-result-label">Songs (${tracks.length})</p>` + tracks.map(t => `<button class="spotify-result" data-uri="${safe(t.uri)}" data-kind="track">${imageHTML(t.album?.images?.[0]?.url)}<span><strong>${safe(t.name)}</strong><small>${safe(t.artists?.map(x=>x.name).join(', '))}</small></span><span class="spotify-action">Play ›</span></button>`).join('') + `<p class="spotify-result-label">Playlists (${playlists.length})</p>` + playlists.map(x => `<button class="spotify-result" data-id="${safe(x.id)}" data-uri="${safe(x.uri)}" data-kind="playlist">${imageHTML(x.images?.[0]?.url)}<span><strong>${safe(x.name)}</strong><small>${safe(x.owner?.display_name || 'Spotify playlist')}</small></span><span class="spotify-action">Open ›</span></button>`).join('');
+    if (!tracks.length && !playlists.length) $('spotifyResults').innerHTML = '<p>No results found. Try a different search.</p>';
+  }
+  async function loadPlaylist(id, uri) {
+    realPlaylist = { id, uri, title: 'Spotify playlist', total: null };
+    realTracks = [];
+    realTrack = null;
+    playlistListUnavailable = false;
+    try {
+      const detail = await spotify.api(`/playlists/${encodeURIComponent(id)}`);
+      realPlaylist.title = detail.name || 'Spotify playlist';
+      realPlaylist.total = detail.items?.total ?? null;
+    } catch (e) {
+      console.warn('Playlist metadata unavailable:', e);
+    }
+    try {
+      // In Spotify Development Mode (2026), only owned/collaborative
+      // playlists expose items. Load all available pages, not just 50.
+      const entries = await spotify.playlistItemsAll(id);
+      realTracks = entries.map(entry => entry.item || entry.track)
+        .filter(x => x?.uri?.startsWith('spotify:track:'))
+        .map(x => ({ uri: x.uri, title: x.name, artist: x.artists?.map(y => y.name).join(', ') || '', dur: (x.duration_ms || 0) / 1000, image: x.album?.images?.[0]?.url }));
+    } catch (e) {
+      playlistListUnavailable = true;
+      console.warn('Playlist items unavailable:', e);
+      toast('This playlist can play, but Spotify restricts its track list.');
+    }
+    state.step = NOW_PLAYING; state.service = 0; realActive = true; state.playing = false;
+    $('spotifyModal').hidden = true; render();
+    await connectPlayback();
+    await spotify.play({ context_uri: uri });
+  }
   const NOTE_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 
@@ -166,7 +235,7 @@
       body.innerHTML = `<div class="choice-grid two">${SERVICES.map((s, i) => `
         <button class="choice-card ${state.service === i ? 'selected' : ''}" type="button" data-pick="${i}">
           <span class="service-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${s.path}"/></svg></span>
-          <strong>${s.name}</strong><small>Connected</small>
+          <strong>${s.name}</strong><small>${i === 0 ? (spotify.connected() ? "Authorized" : "Connect account") : "Prototype only"}</small>
         </button>`).join('')}</div>`;
     } else if (state.step === 2) {
       eyebrow.textContent = `${SERVICES[state.service].name} connected`;
@@ -191,28 +260,42 @@
   }
 
   function renderPlaylistPanel() {
-    const pl = PLAYLISTS[state.playlist ?? 0];
+    const pl = realActive ? { name: realPlaylist?.title || 'Spotify music', tracks: realTracks } : PLAYLISTS[state.playlist ?? 0];
     $('plName').textContent = pl.name;
-    $('plSummary').innerHTML =
-      `<span>${pl.count}</span><span>${pl.length}</span><span>${CLASSES[state.classType ?? 0].detail}</span>`;
-    $('trackList').innerHTML = pl.tracks.map((t, i) => {
-      const active = i === state.track;
-      return `<button type="button" class="track-row ${active ? 'active' : ''}" data-track="${i}">
+    $('browseBtn').textContent = realActive ? 'Search Spotify' : `Browse all ${parseInt(pl.count, 10)} tracks`;
+    const displayCount = realActive
+      ? (playlistListUnavailable ? (realPlaylist?.total != null ? `${realPlaylist.total} tracks · list restricted` : 'Track list restricted')
+        : realPlaylist?.total != null && realTracks.length < realPlaylist.total ? `${realTracks.length} of ${realPlaylist.total} tracks` : `${realTracks.length} tracks`)
+      : pl.count;
+    $('plSummary').innerHTML = `<span>${safe(displayCount)}</span><span>${realActive ? 'Spotify' : pl.length}</span><span>${safe(CLASSES[state.classType ?? 0].detail)}</span>`;
+    // A search result is one song, not an empty playlist. For a playlist
+    // Spotify restricts, show the real now-playing track without claiming to
+    // have downloaded the playlist's full track list.
+    const showCurrentOnly = realActive && !realTracks.length && realTrack;
+    const rows = showCurrentOnly ? [realTrack] : pl.tracks;
+    $('trackList').innerHTML = rows.map((t, i) => {
+      const active = realActive ? (realTrack?.uri === t.uri) : i === state.track;
+      return `<button type="button" class="track-row ${active ? 'active' : ''}" data-track="${i}" ${showCurrentOnly ? 'data-current-only="true"' : ''}>
         <span class="track-number">${active && state.playing ? '●' : String(i + 1).padStart(2, '0')}</span>
-        ${artHTML(t.hue)}
-        <span class="row-copy"><strong>${t.title}</strong><small>${t.artist}</small></span>
+        ${imageHTML(t.image, t.hue)}
+        <span class="row-copy"><strong>${safe(t.title)}</strong><small>${safe(t.artist)}</small></span>
         <span class="duration">${fmt(t.dur)}</span>
         ${active ? '<svg width="7" height="14" viewBox="0 0 10.5 19.5" fill="none"><path d="M0.75 18.75L9.75 9.75L0.75 0.75" stroke="#C8F542" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<span></span>'}
       </button>`;
     }).join('');
+    if (realActive && playlistListUnavailable) {
+      $('trackList').insertAdjacentHTML('beforeend', '<p class="playlist-notice">Spotify limits track lists to playlists you own or collaborate on. The current song appears above; search for other songs using Search Spotify.</p>');
+    } else if (realActive && !rows.length) {
+      $('trackList').insertAdjacentHTML('beforeend', '<p class="playlist-notice">No tracks available yet. Start playback or search for music.</p>');
+    }
   }
 
   function renderTrackInfo() {
-    const t = currentTrack();
+    const t = realActive ? (realTrack || realTracks[0] || {title:"Select a song",artist:"Spotify",dur:1}) : currentTrack();
     $('trackTitle').textContent = t.title;
     $('trackArtist').textContent = t.artist;
-    $('albumArt').innerHTML = artHTML(t.hue);
-    $('timeTotal').textContent = fmt(t.dur);
+    $('albumArt').innerHTML = imageHTML(t.image, t.hue);
+    $('timeTotal').textContent = fmt(t.dur || 0);
     $('ctxService').textContent = SERVICES[state.service ?? 0].name;
     $('ctxClass').textContent = CLASSES[state.classType ?? 0].name;
     renderPlaylistPanel();
@@ -225,10 +308,10 @@
   }
 
   function renderTime() {
-    const t = currentTrack();
-    const pct = Math.min(100, (state.elapsed / t.dur) * 100);
+    const t = realActive ? (realTrack || {dur:1}) : currentTrack();
+    const pct = Math.min(100, ((realActive ? realPosition : state.elapsed) / (t.dur || 1)) * 100);
     setRange($('songProgress'), pct);
-    $('timeElapsed').textContent = fmt(state.elapsed);
+    $('timeElapsed').textContent = fmt(realActive ? realPosition : state.elapsed);
   }
 
   function renderPlayButton() {
@@ -252,6 +335,7 @@
     $('dashboard').hidden = !playing;
     $('dashboard').classList.toggle('playlist-collapsed', state.collapsed);
     renderHeader();
+    $('openSearch').hidden = !spotify.connected();
     if (playing) {
       renderTrackInfo();
       renderPlayButton();
@@ -287,6 +371,7 @@
   }
 
   setInterval(() => {
+    if (realActive) { if (state.step === NOW_PLAYING && !realPaused) { realPosition = Math.min(realDuration, realPosition + .25); renderTime(); } return; }
     if (state.step !== NOW_PLAYING || !state.playing) return;
     state.elapsed += 0.25;
     if (state.elapsed >= currentTrack().dur) {
@@ -319,7 +404,7 @@
     if (!b) return;
     const i = Number(b.dataset.pick);
     if (state.step === 0) choose(0, () => { state.instructor = i; });
-    else if (state.step === 1) choose(1, () => { state.service = i; });
+    else if (state.step === 1) { if (i === 0) { state.service = 0; showSpotifyModal(); } else toast('Apple Music is a prototype option. Select Spotify for real playback.'); }
     else if (state.step === 2) choose(2, () => { state.classType = i; });
     else if (state.step === 3) {
       state.playlist = i;
@@ -338,20 +423,21 @@
   $('helpOverlay').addEventListener('click', (e) => { if (e.target === $('helpOverlay')) closeHelp(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHelp(); });
 
-  $('playBtn').addEventListener('click', () => { state.playing = !state.playing; renderPlayButton(); renderPlaylistPanel(); });
-  $('prevBtn').addEventListener('click', () => {
+  $('playBtn').addEventListener('click', () => { if (realActive) { realAction(async () => { if (realPaused) await spotify.resume(); else await spotify.pause(); }); return; } state.playing = !state.playing; renderPlayButton(); renderPlaylistPanel(); });
+  $('prevBtn').addEventListener('click', () => { if (realActive) { realAction(() => spotify.prev()); return; }
     if (state.elapsed > 3) { state.elapsed = 0; renderTime(); } else move(-1);
   });
-  $('nextBtn').addEventListener('click', () => move(1));
+  $('nextBtn').addEventListener('click', () => realActive ? realAction(() => spotify.next()) : move(1));
   $('shuffleBtn').addEventListener('click', () => {
     state.shuffle = !state.shuffle;
     $('shuffleBtn').classList.toggle('on', state.shuffle);
     $('shuffleBtn').setAttribute('aria-pressed', String(state.shuffle));
-    toast(state.shuffle ? 'Shuffle on' : 'Shuffle off');
+    if (realActive) realAction(() => spotify.shuffle(state.shuffle)); else toast(state.shuffle ? 'Shuffle on' : 'Shuffle off');
   });
 
   $('songProgress').addEventListener('input', (e) => {
     const pct = Number(e.target.value);
+    if (realActive) { realAction(() => spotify.seek((pct / 100) * realDuration * 1000)); return; }
     state.elapsed = (pct / 100) * currentTrack().dur;
     renderTime();
   });
@@ -359,18 +445,40 @@
     state.volume = Number(e.target.value);
     setRange(e.target, state.volume);
     $('volumeLabel').textContent = `${state.volume}%`;
+    if (realActive) realAction(() => spotify.volume(state.volume));
   });
 
   $('trackList').addEventListener('click', (e) => {
     const b = e.target.closest('[data-track]');
-    if (b) selectTrack(Number(b.dataset.track));
+    if (b) { if (realActive) { const t = b.dataset.currentOnly ? realTrack : realTracks[Number(b.dataset.track)]; if (t?.uri) realAction(() => spotify.play({uris:[t.uri]})); } else selectTrack(Number(b.dataset.track)); }
   });
   $('changePlaylist').addEventListener('click', () => { state.playing = false; goTo(3); });
   $('collapsePlaylist').addEventListener('click', () => { state.collapsed = true; $('dashboard').classList.add('playlist-collapsed'); });
   $('expandPlaylist').addEventListener('click', () => { state.collapsed = false; $('dashboard').classList.remove('playlist-collapsed'); });
-  $('browseBtn').addEventListener('click', () => toast('Showing the first 5 tracks in this demo'));
+  $('browseBtn').addEventListener('click', () => realActive ? showSpotifyModal() : toast('Showing the first 5 sample tracks')); 
 
+  $('openSearch').addEventListener('click', showSpotifyModal);
+  $('closeSpotifyModal').addEventListener('click', () => { $('spotifyModal').hidden = true; });
+  $('spotifyModal').addEventListener('click', e => { if (e.target === $('spotifyModal')) $('spotifyModal').hidden = true; });
+  $('spotifyAccount').addEventListener('submit', e => { if (e.target.id === 'spotifyClientForm') { e.preventDefault(); spotify.setClientId(e.target.querySelector('input').value); renderSpotifyAccount(); } });
+  $('spotifyAccount').addEventListener('click', e => {
+    if (e.target.id === 'connectSpotify') realAction(() => spotify.auth());
+    if (e.target.id === 'activateSpotify') realAction(connectPlayback);
+    if (e.target.id === 'logoutSpotify') { spotify.logout(); realActive = false; renderSpotifyAccount(); render(); }
+    if (e.target.id === 'editClientId') { spotify.setClientId(''); renderSpotifyAccount(); }
+  });
+  $('spotifySearchForm').addEventListener('submit', e => { e.preventDefault(); realAction(() => performSearch($('spotifyQuery').value.trim(), $('spotifySearchType').value)); });
+  $('spotifyResults').addEventListener('click', e => {
+    const b = e.target.closest('button.spotify-result'); if (!b) return;
+    realAction(async () => {
+      if (b.dataset.kind === 'playlist') return loadPlaylist(b.dataset.id, b.dataset.uri);
+      await connectPlayback(); await spotify.play({uris:[b.dataset.uri]});
+      realActive = true; realPlaylist = {title:'Spotify search', total:1}; realTracks = []; realTrack = null; playlistListUnavailable = false;
+      state.service = 0; state.step = NOW_PLAYING; $('spotifyModal').hidden = true; render();
+    });
+  });
   // ---------- Init ----------
   setRange($('volume'), state.volume);
   render();
+  spotify.callback().then(() => { if (spotify.connected()) { showSpotifyModal(); toast('Spotify connected. Search for music!'); } }).catch(report);
 })();

@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&family=Manrope:wght@700;800&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -112,6 +113,20 @@
         </aside>
       </section>
 
+      <!-- Spotify search and account controls -->
+      <button class="spotify-search-button" id="openSearch" type="button" hidden>⌕ Search Spotify</button>
+      <div class="spotify-modal" id="spotifyModal" hidden role="dialog" aria-modal="true" aria-labelledby="spotifyModalTitle">
+        <section class="spotify-sheet">
+          <div class="spotify-sheet-head"><div><p class="spotify-eyebrow">BODIFI × SPOTIFY</p><h2 id="spotifyModalTitle">Search music</h2></div><button id="closeSpotifyModal" class="spotify-outline" type="button">✕ Close</button></div>
+          <div id="spotifyAccount" class="spotify-account"></div>
+          <form id="spotifySearchForm" class="spotify-search-form" hidden>
+            <input id="spotifyQuery" type="search" placeholder="Search songs or playlists" aria-label="Search Spotify" required />
+            <select id="spotifySearchType" aria-label="Search type"><option value="track,playlist">All</option><option value="track">Songs</option><option value="playlist">Playlists</option></select>
+            <button type="submit">Search</button>
+          </form>
+          <div id="spotifyResults" class="spotify-results" aria-live="polite"></div>
+        </section>
+      </div>
       <!-- ===== Help dialog ===== -->
       <div class="help-overlay" id="helpOverlay" hidden>
         <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -127,6 +142,7 @@
       <div class="toast" id="toast" role="status" hidden></div>
     </main>
 
+    <script src="spotify.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
