@@ -1,0 +1,33 @@
+PASS  Step 1 shows "Select instructor"
+PASS  Pick Alex R. -> Music service, header shows Alex R.
+PASS  Pick Spotify -> Class type
+PASS  Back -> Music service
+PASS  Unreached progress step is disabled
+PASS  Progress step tap -> Music service
+PASS  Pick Dance Cardio -> Playlist
+PASS  Help opens
+PASS  Esc closes Help, stays on Playlist
+PASS  Pick playlist -> Now playing (paused, Neon Pulse)
+PASS  Context line shows Apple Music / Dance Cardio (service re-picked at step 2)
+PASS  Browse button count matches playlist (21 tracks)
+PASS  Play -> button becomes Pause
+PASS  Elapsed time advances while playing (got 0:02)
+PASS  Pause -> button becomes Play
+PASS  Tap track 3 -> After Hours, playing
+PASS  Next -> Heartbeat City
+PASS  Previous -> After Hours
+PASS  Next on last track wraps to first
+PASS  Seek to 50% -> elapsed ~1:42 (got 1:42)
+PASS  Volume slider updates label to 30%
+PASS  Shuffle toggles on (aria-pressed)
+PASS  Shuffle Next picks a different track
+PASS  Playlist collapses; Playlist button appears
+PASS  Playlist reopens
+PASS  Change -> Playlist selection
+PASS  Choose Sunday Reset -> Slow Morning, paused
+PASS  Header profile -> Select instructor
+PASS  Help works on step 2 and closes
+PASS  Mobile 390px: no horizontal overflow
+PASS  No JS errors (excluding blocked Google Fonts)
+
+Raw errors: ["console: Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"]
