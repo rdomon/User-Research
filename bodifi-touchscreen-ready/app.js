@@ -96,6 +96,11 @@
   const spotify = window.BodifiSpotify;
   let realPlaylist = null, realTracks = [], realTrack = null, realActive = false;
   let playlistListUnavailable = false;
+  let libraryOffset = 0, libraryLoading = false, currentSpotifyTab = 'search';
+  const libraryItems = new Map();
+  let profileCache = null;
+  let stepPlaylists = [];
+  let stepPlaylistsLoading = false;
   let realPosition = 0, realDuration = 0, realPaused = true;
   const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const imageHTML = (url, hue = 100) => url && /^https:\/\//.test(url) ? `<img class="spotify-cover" src="${safe(url)}" alt="Album art" />` : artHTML(hue);
@@ -114,7 +119,68 @@
     const r = await spotify.connect(applyPlayback, report);
     toast('Spotify browser player is ready'); return r;
   }
-  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); }
+  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); setSpotifyTab(currentSpotifyTab); updateContinueButton(); }
+  function updateContinueButton() { $('continueSetup').hidden = !(spotify.connected() && state.step === 1); }
+  function continueSetup() { if (!spotify.connected()) { toast('Connect Spotify first.'); return; } $('spotifyModal').hidden = true; state.service = 0; state.furthest = Math.max(state.furthest, 2); goTo(2); }
+  function setSpotifyTab(tab) {
+    currentSpotifyTab = tab;
+    document.querySelectorAll('[data-spotify-tab]').forEach(b => {
+      const active = b.dataset.spotifyTab === tab;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', String(active));
+    });
+    $('spotifySearchView').hidden = tab !== 'search';
+    $('spotifyLibraryView').hidden = tab !== 'library';
+    $('spotifyProfileView').hidden = tab !== 'account';
+    updateContinueButton();
+    $('spotifyModalTitle').textContent = ({ search:'Search music', library:'My Library', account:'My Spotify Account' })[tab];
+    if (!spotify.connected()) return;
+    if (tab === 'library' && !libraryItems.size) realAction(() => fetchMyPlaylists(true));
+    if (tab === 'account') realAction(fetchMyProfile);
+  }
+  async function fetchMyProfile() {
+    const el = $('spotifyProfile');
+    el.textContent = 'Loading your Spotify profile…';
+    try {
+      profileCache = profileCache || await spotify.api('/me');
+      const p = profileCache;
+      const photo = p.images?.[0]?.url;
+      const profileLink = p.external_urls?.spotify || `https://open.spotify.com/user/${encodeURIComponent(p.id || '')}`;
+      el.innerHTML = `<div class="spotify-profile-card">${photo ? `<img class="spotify-profile-avatar" src="${safe(photo)}" alt="Spotify profile image">` : '<span class="spotify-profile-avatar placeholder">♫</span>'}<div><strong>${safe(p.display_name || p.id || 'Spotify user')}</strong><small>Connected Spotify account</small><a target="_blank" rel="noopener noreferrer" href="${safe(profileLink)}">Open profile on Spotify ↗</a></div></div>`;
+    } catch(e) { el.textContent = `Could not load your account: ${e.message}`; }
+  }
+  async function fetchMyPlaylists(reset = false) {
+    if (libraryLoading) return;
+    if (reset) { libraryOffset = 0; libraryItems.clear(); $('myPlaylists').replaceChildren(); }
+    libraryLoading = true;
+    const el = $('myPlaylists');
+    const more = $('loadMorePlaylists');
+    more.hidden = true;
+    const status = document.createElement('p'); status.className = 'spotify-help-text'; status.textContent = 'Loading playlists…'; el.append(status);
+    try {
+      const page = await spotify.myPlaylists(libraryOffset);
+      status.remove();
+      const items = (page?.items || []).filter(Boolean);
+      for (const x of items) {
+        if (!x.id || !x.uri) continue;
+        libraryItems.set(x.id, x);
+        const b = document.createElement('button'); b.className = 'spotify-result'; b.type = 'button';
+        b.dataset.kind = 'playlist'; b.dataset.id = x.id; b.dataset.uri = x.uri;
+        const cover = imageHTML(x.images?.[0]?.url);
+        const count = x.items?.total ?? x.tracks?.total;
+        b.innerHTML = `${cover}<span><strong>${safe(x.name)}</strong><small>${count == null ? 'Spotify playlist' : `${count} tracks`} · ${safe(x.owner?.display_name || 'Spotify')}</small></span><span class="spotify-action">Play ›</span>`;
+        el.append(b);
+      }
+      libraryOffset += items.length;
+      if (!libraryItems.size) el.innerHTML = '<p class="spotify-help-text">No playlists found on this Spotify account.</p>';
+      more.hidden = !(page?.next && items.length);
+    } catch (e) {
+      status.remove();
+      const err = document.createElement('p'); err.className = 'playlist-notice';
+      err.textContent = `Could not load playlists: ${e.message}. Try reconnecting Spotify and allowing playlist access.`;
+      el.append(err);
+    } finally { libraryLoading = false; }
+  }
   function renderSpotifyAccount() {
     const account = $('spotifyAccount');
     if (!spotify.clientId()) {
@@ -125,6 +191,7 @@
       account.innerHTML = `<div class="spotify-connected"><span class="connection-dot"></span> Spotify authorized <button id="logoutSpotify" class="spotify-link" type="button">Disconnect</button></div><button id="activateSpotify" class="spotify-outline" type="button">Activate browser audio</button>`;
     }
     $('spotifySearchForm').hidden = !spotify.connected();
+    document.querySelector('.spotify-tabs').hidden = !spotify.connected();
   }
   async function performSearch(q, type) {
     $('spotifyResults').textContent = 'Searching Spotify…';
@@ -250,13 +317,47 @@
       eyebrow.textContent = CLASSES[state.classType].name;
       title.textContent = 'Playlist';
       sub.textContent = 'Select music, then continue to the Now playing screen.';
-      body.innerHTML = `<div class="playlist-choices">${PLAYLISTS.map((p, i) => `
-        <button class="playlist-choice ${state.playlist === i ? 'selected' : ''}" type="button" data-pick="${i}">
-          ${artHTML(p.hue)}
-          <span class="meta"><strong>${p.name}</strong><small>${p.count} · ${p.length}</small></span>
-          <svg width="8" height="15" viewBox="0 0 10.5 19.5" fill="none"><path d="M0.75 18.75L9.75 9.75L0.75 0.75" stroke="#C8F542" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>`).join('')}</div>`;
+      if (state.service === 0 && spotify.connected()) {
+        body.innerHTML = `<div class="playlist-choices" id="setupSpotifyPlaylists"><p class="spotify-help-text">Loading your Spotify playlists…</p></div><button class="spotify-outline setup-search" type="button" id="searchOtherMusic">Search Spotify instead</button>`;
+        if (stepPlaylists.length) renderStepPlaylists();
+        else if (!stepPlaylistsLoading) realAction(fetchStepPlaylists);
+      } else {
+        body.innerHTML = `<p class="spotify-help-text">Please connect Spotify to choose real music.</p>`;
+      }
     }
+  }
+
+  async function fetchStepPlaylists() {
+    if (stepPlaylistsLoading || state.step !== 3) return;
+    stepPlaylistsLoading = true;
+    try {
+      // Fetch up to 200 playlists to offer a useful account library on the setup screen.
+      const found = [];
+      for (let offset = 0; offset < 200; offset += 50) {
+        const page = await spotify.myPlaylists(offset);
+        const items = (page.items || []).filter(Boolean);
+        found.push(...items);
+        if (!page.next || !items.length) break;
+      }
+      stepPlaylists = found;
+      if (state.step === 3) renderStepPlaylists();
+    } catch (err) {
+      const el = $('setupSpotifyPlaylists');
+      if (el) el.innerHTML = `<p class="spotify-help-text">Couldn't load your playlists. Use Search Spotify or try again.</p><button class="spotify-outline" id="retrySetupPlaylists" type="button">Retry</button>`;
+      console.error(err);
+    } finally { stepPlaylistsLoading = false; }
+  }
+  function renderStepPlaylists() {
+    const el = $('setupSpotifyPlaylists'); if (!el) return;
+    if (!stepPlaylists.length) {
+      el.innerHTML = '<p class="spotify-help-text">No Spotify playlists found. You can search for music instead.</p>';
+      return;
+    }
+    el.innerHTML = stepPlaylists.map((p,i) => `<button type="button" class="playlist-choice" data-real-playlist="${i}">
+      ${imageHTML(p.images?.[0]?.url)}
+      <span class="meta"><strong>${safe(p.name)}</strong><small>${p.items?.total ?? p.tracks?.total ?? '—'} tracks · ${safe(p.owner?.display_name || 'Spotify')}</small></span>
+      <span class="playlist-arrow" aria-hidden="true">›</span>
+    </button>`).join('');
   }
 
   function renderPlaylistPanel() {
@@ -404,7 +505,7 @@
     if (!b) return;
     const i = Number(b.dataset.pick);
     if (state.step === 0) choose(0, () => { state.instructor = i; });
-    else if (state.step === 1) { if (i === 0) { state.service = 0; showSpotifyModal(); } else toast('Apple Music is a prototype option. Select Spotify for real playback.'); }
+    else if (state.step === 1) { if (i === 0) { state.service = 0; if (spotify.connected()) { state.furthest = Math.max(state.furthest, 2); goTo(2); } else showSpotifyModal(); } else toast('Apple Music is a prototype option. Select Spotify for real playback.'); }
     else if (state.step === 2) choose(2, () => { state.classType = i; });
     else if (state.step === 3) {
       state.playlist = i;
@@ -416,6 +517,16 @@
     }
   });
 
+  $('setupBody').addEventListener('click', e => {
+    const card = e.target.closest('[data-real-playlist]');
+    if (card) {
+      const p = stepPlaylists[Number(card.dataset.realPlaylist)];
+      if (p) realAction(() => loadPlaylist(p.id, p.uri));
+    }
+    if (e.target.closest('#searchOtherMusic')) { showSpotifyModal(); setSpotifyTab('search'); }
+    if (e.target.closest('#retrySetupPlaylists')) realAction(fetchStepPlaylists);
+  });
+  $('continueSetup').addEventListener('click', continueSetup);
   $('backButton').addEventListener('click', goBack);
   $('profileButton').addEventListener('click', () => { state.playing = false; goTo(0); });
   $('helpButton').addEventListener('click', openHelp);
@@ -464,10 +575,17 @@
   $('spotifyAccount').addEventListener('click', e => {
     if (e.target.id === 'connectSpotify') realAction(() => spotify.auth());
     if (e.target.id === 'activateSpotify') realAction(connectPlayback);
-    if (e.target.id === 'logoutSpotify') { spotify.logout(); realActive = false; renderSpotifyAccount(); render(); }
+    if (e.target.id === 'logoutSpotify') { spotify.logout(); realActive = false; libraryItems.clear(); profileCache = null; currentSpotifyTab = 'search'; renderSpotifyAccount(); setSpotifyTab('search'); render(); }
     if (e.target.id === 'editClientId') { spotify.setClientId(''); renderSpotifyAccount(); }
   });
   $('spotifySearchForm').addEventListener('submit', e => { e.preventDefault(); realAction(() => performSearch($('spotifyQuery').value.trim(), $('spotifySearchType').value)); });
+  document.querySelectorAll('[data-spotify-tab]').forEach(b => b.addEventListener('click', () => setSpotifyTab(b.dataset.spotifyTab)));
+  $('refreshLibrary').addEventListener('click', () => realAction(() => fetchMyPlaylists(true)));
+  $('loadMorePlaylists').addEventListener('click', () => realAction(() => fetchMyPlaylists(false)));
+  $('myPlaylists').addEventListener('click', e => {
+    const b = e.target.closest('button[data-kind="playlist"]'); if (!b) return;
+    realAction(() => loadPlaylist(b.dataset.id, b.dataset.uri));
+  });
   $('spotifyResults').addEventListener('click', e => {
     const b = e.target.closest('button.spotify-result'); if (!b) return;
     realAction(async () => {
@@ -480,5 +598,5 @@
   // ---------- Init ----------
   setRange($('volume'), state.volume);
   render();
-  spotify.callback().then(() => { if (spotify.connected()) { showSpotifyModal(); toast('Spotify connected. Search for music!'); } }).catch(report);
+  spotify.callback().then(() => { if (spotify.connected()) { if (state.step === 0) { state.step = 1; state.furthest = Math.max(state.furthest, 1); } showSpotifyModal(); toast('Spotify connected. Continue to class type!'); } }).catch(report);
 })();

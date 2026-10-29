@@ -99,8 +99,6 @@
   let libraryOffset = 0, libraryLoading = false, currentSpotifyTab = 'search';
   const libraryItems = new Map();
   let profileCache = null;
-  let stepPlaylists = [];
-  let stepPlaylistsLoading = false;
   let realPosition = 0, realDuration = 0, realPaused = true;
   const safe = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const imageHTML = (url, hue = 100) => url && /^https:\/\//.test(url) ? `<img class="spotify-cover" src="${safe(url)}" alt="Album art" />` : artHTML(hue);
@@ -119,9 +117,7 @@
     const r = await spotify.connect(applyPlayback, report);
     toast('Spotify browser player is ready'); return r;
   }
-  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); setSpotifyTab(currentSpotifyTab); updateContinueButton(); }
-  function updateContinueButton() { $('continueSetup').hidden = !(spotify.connected() && state.step === 1); }
-  function continueSetup() { if (!spotify.connected()) { toast('Connect Spotify first.'); return; } $('spotifyModal').hidden = true; state.service = 0; state.furthest = Math.max(state.furthest, 2); goTo(2); }
+  function showSpotifyModal() { $('spotifyModal').hidden = false; renderSpotifyAccount(); setSpotifyTab(currentSpotifyTab); }
   function setSpotifyTab(tab) {
     currentSpotifyTab = tab;
     document.querySelectorAll('[data-spotify-tab]').forEach(b => {
@@ -132,7 +128,6 @@
     $('spotifySearchView').hidden = tab !== 'search';
     $('spotifyLibraryView').hidden = tab !== 'library';
     $('spotifyProfileView').hidden = tab !== 'account';
-    updateContinueButton();
     $('spotifyModalTitle').textContent = ({ search:'Search music', library:'My Library', account:'My Spotify Account' })[tab];
     if (!spotify.connected()) return;
     if (tab === 'library' && !libraryItems.size) realAction(() => fetchMyPlaylists(true));
@@ -317,47 +312,13 @@
       eyebrow.textContent = CLASSES[state.classType].name;
       title.textContent = 'Playlist';
       sub.textContent = 'Select music, then continue to the Now playing screen.';
-      if (state.service === 0 && spotify.connected()) {
-        body.innerHTML = `<div class="playlist-choices" id="setupSpotifyPlaylists"><p class="spotify-help-text">Loading your Spotify playlists…</p></div><button class="spotify-outline setup-search" type="button" id="searchOtherMusic">Search Spotify instead</button>`;
-        if (stepPlaylists.length) renderStepPlaylists();
-        else if (!stepPlaylistsLoading) realAction(fetchStepPlaylists);
-      } else {
-        body.innerHTML = `<p class="spotify-help-text">Please connect Spotify to choose real music.</p>`;
-      }
+      body.innerHTML = `<div class="playlist-choices">${PLAYLISTS.map((p, i) => `
+        <button class="playlist-choice ${state.playlist === i ? 'selected' : ''}" type="button" data-pick="${i}">
+          ${artHTML(p.hue)}
+          <span class="meta"><strong>${p.name}</strong><small>${p.count} · ${p.length}</small></span>
+          <svg width="8" height="15" viewBox="0 0 10.5 19.5" fill="none"><path d="M0.75 18.75L9.75 9.75L0.75 0.75" stroke="#C8F542" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>`).join('')}</div>`;
     }
-  }
-
-  async function fetchStepPlaylists() {
-    if (stepPlaylistsLoading || state.step !== 3) return;
-    stepPlaylistsLoading = true;
-    try {
-      // Fetch up to 200 playlists to offer a useful account library on the setup screen.
-      const found = [];
-      for (let offset = 0; offset < 200; offset += 50) {
-        const page = await spotify.myPlaylists(offset);
-        const items = (page.items || []).filter(Boolean);
-        found.push(...items);
-        if (!page.next || !items.length) break;
-      }
-      stepPlaylists = found;
-      if (state.step === 3) renderStepPlaylists();
-    } catch (err) {
-      const el = $('setupSpotifyPlaylists');
-      if (el) el.innerHTML = `<p class="spotify-help-text">Couldn't load your playlists. Use Search Spotify or try again.</p><button class="spotify-outline" id="retrySetupPlaylists" type="button">Retry</button>`;
-      console.error(err);
-    } finally { stepPlaylistsLoading = false; }
-  }
-  function renderStepPlaylists() {
-    const el = $('setupSpotifyPlaylists'); if (!el) return;
-    if (!stepPlaylists.length) {
-      el.innerHTML = '<p class="spotify-help-text">No Spotify playlists found. You can search for music instead.</p>';
-      return;
-    }
-    el.innerHTML = stepPlaylists.map((p,i) => `<button type="button" class="playlist-choice" data-real-playlist="${i}">
-      ${imageHTML(p.images?.[0]?.url)}
-      <span class="meta"><strong>${safe(p.name)}</strong><small>${p.items?.total ?? p.tracks?.total ?? '—'} tracks · ${safe(p.owner?.display_name || 'Spotify')}</small></span>
-      <span class="playlist-arrow" aria-hidden="true">›</span>
-    </button>`).join('');
   }
 
   function renderPlaylistPanel() {
@@ -505,7 +466,7 @@
     if (!b) return;
     const i = Number(b.dataset.pick);
     if (state.step === 0) choose(0, () => { state.instructor = i; });
-    else if (state.step === 1) { if (i === 0) { state.service = 0; if (spotify.connected()) { state.furthest = Math.max(state.furthest, 2); goTo(2); } else showSpotifyModal(); } else toast('Apple Music is a prototype option. Select Spotify for real playback.'); }
+    else if (state.step === 1) { if (i === 0) { state.service = 0; showSpotifyModal(); } else toast('Apple Music is a prototype option. Select Spotify for real playback.'); }
     else if (state.step === 2) choose(2, () => { state.classType = i; });
     else if (state.step === 3) {
       state.playlist = i;
@@ -517,16 +478,6 @@
     }
   });
 
-  $('setupBody').addEventListener('click', e => {
-    const card = e.target.closest('[data-real-playlist]');
-    if (card) {
-      const p = stepPlaylists[Number(card.dataset.realPlaylist)];
-      if (p) realAction(() => loadPlaylist(p.id, p.uri));
-    }
-    if (e.target.closest('#searchOtherMusic')) { showSpotifyModal(); setSpotifyTab('search'); }
-    if (e.target.closest('#retrySetupPlaylists')) realAction(fetchStepPlaylists);
-  });
-  $('continueSetup').addEventListener('click', continueSetup);
   $('backButton').addEventListener('click', goBack);
   $('profileButton').addEventListener('click', () => { state.playing = false; goTo(0); });
   $('helpButton').addEventListener('click', openHelp);
@@ -598,5 +549,5 @@
   // ---------- Init ----------
   setRange($('volume'), state.volume);
   render();
-  spotify.callback().then(() => { if (spotify.connected()) { if (state.step === 0) { state.step = 1; state.furthest = Math.max(state.furthest, 1); } showSpotifyModal(); toast('Spotify connected. Continue to class type!'); } }).catch(report);
+  spotify.callback().then(() => { if (spotify.connected()) { showSpotifyModal(); toast('Spotify connected. Search for music!'); } }).catch(report);
 })();
